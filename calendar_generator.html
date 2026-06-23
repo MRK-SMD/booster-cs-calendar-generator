@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>スケジュールカレンダー生成ツール</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans JP', 'Helvetica Neue', Arial, sans-serif;
+      background: #f0f2f5;
+      padding: 24px;
+      color: #333;
+    }
+    h1 { font-size: 22px; font-weight: 700; color: #222; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #666; margin-bottom: 20px; }
+
+    .panel {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .panel h2 { font-size: 15px; font-weight: 600; color: #444; margin-bottom: 14px; }
+
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .col { flex: 1; min-width: 240px; }
+
+    label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 5px; }
+    input[type="text"] {
+      width: 100%; padding: 8px 10px; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 13px; color: #333;
+    }
+    input[type="text"]:focus { outline: none; border-color: #e84f4f; }
+
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      padding: 9px 18px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-primary   { background: #e84f4f; color: white; }
+    .btn-primary:hover  { background: #d03a3a; }
+    .btn-secondary { background: #4a90d9; color: white; }
+    .btn-secondary:hover { background: #3a7bcc; }
+
+    .error { color: #e84f4f; font-size: 12px; margin-top: 8px; }
+
+    #output-panel { display: none; }
+    #canvas-wrap { overflow-x: auto; }
+    canvas { display: block; border: 1px solid #eee; }
+
+    .task-list { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+    .task-list th {
+      background: #f5f5f5; padding: 8px 6px; text-align: left;
+      font-weight: 600; color: #555; border-bottom: 2px solid #ddd;
+    }
+    .task-list td { padding: 6px; border-bottom: 1px solid #eee; vertical-align: middle; }
+    .task-list tr:hover td { background: #fafafa; }
+    .task-list input[type="text"], .task-list input[type="date"] {
+      width: 100%; padding: 5px 7px; font-size: 12px;
+      border: 1px solid #ddd; border-radius: 4px;
+    }
+    .task-list input[type="number"] {
+      width: 50px; padding: 5px 7px; font-size: 12px;
+      border: 1px solid #ddd; border-radius: 4px;
+    }
+    .task-list input[type="color"] { width: 32px; height: 26px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
+    .del-btn { background: #fee; border: 1px solid #fcc; color: #c33; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
+    .del-btn:hover { background: #fdd; }
+    .add-btn { background: #e8f4e8; border: 1px solid #c3dfc3; color: #2a7a2a; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; margin-top: 8px; }
+    .add-btn:hover { background: #d4ecd4; }
+  </style>
+</head>
+<body>
+
+<h1>📅 スケジュールカレンダー生成ツール</h1>
+<p class="subtitle">タスクと日程を入力すると、スライド用のカレンダー画像（PNG）を自動生成します</p>
+
+<div class="panel">
+  <h2>基本設定</h2>
+  <div class="row">
+    <div class="col">
+      <label>カレンダータイトル（任意）</label>
+      <input type="text" id="calTitle" value="導入の流れ（7月開始）">
+    </div>
+    <div class="col">
+      <label>サブタイトル（任意）</label>
+      <input type="text" id="calSubtitle" value="貴社では「タグ配信・ServiceWorkerファイル設置」後、「動作確認」を行っていただきます。">
+    </div>
+    <div class="col">
+      <label>注釈（任意）</label>
+      <input type="text" id="calNote" value="※ 記載の必要日数・期間はあくまで想定のため、動作環境等によって大きく前後する可能性もございます">
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>タスク入力</h2>
+  <table class="task-list">
+    <thead>
+      <tr>
+        <th style="width:24%">タスク名</th>
+        <th style="width:14%">開始日</th>
+        <th style="width:14%">終了日</th>
+        <th style="width:8%">背景色</th>
+        <th style="width:8%">文字色</th>
+        <th style="width:7%">レーン</th>
+        <th style="width:7%">矢印</th>
+        <th style="width:5%"></th>
+      </tr>
+    </thead>
+    <tbody id="taskBody"></tbody>
+  </table>
+  <button class="add-btn" onclick="addTaskRow()">＋ タスクを追加</button>
+
+  <div id="inputError" class="error"></div>
+  <div class="btn-row">
+    <button class="btn-primary" onclick="generateCalendar()">🗓 カレンダーを生成</button>
+  </div>
+</div>
+
+<div class="panel" id="output-panel">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px">
+    <h2>プレビュー</h2>
+    <button class="btn-secondary" onclick="downloadPNG()">⬇️ PNGで保存</button>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="calendar"></canvas>
+  </div>
+</div>
+
+<script>
+const defaultTasks = [
+  { name: '本番環境へのタグ・SW設置', start: '2026-06-15', end: '2026-06-26', bg: '#f4c4bb', text: '#333333', lane: 1, arrow: false },
+  { name: '動作確認',                 start: '2026-06-21', end: '2026-06-26', bg: '#e87878', text: '#ffffff', lane: 2, arrow: false },
+  { name: '段階適用10%→30%',          start: '2026-06-29', end: '2026-07-07', bg: '#b8d4e8', text: '#333333', lane: 1, arrow: false },
+  { name: '計測期間 50%',             start: '2026-07-01', end: '2026-07-11', bg: '#5b8ab5', text: '#ffffff', lane: 2, arrow: false },
+  { name: '結果報告会',               start: '2026-07-13', end: '2026-07-24', bg: '#f4c4bb', text: '#cc0000', lane: 1, arrow: false },
+  { name: '7月より正式運用開始予定',   start: '2026-07-26', end: '2026-07-28', bg: '#333333', text: '#ffffff', lane: 1, arrow: false },
+];
+
+function addTaskRow(task = {}) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text"   value="${task.name  || ''}"         placeholder="タスク名"></td>
+    <td><input type="date"   value="${task.start || ''}"></td>
+    <td><input type="date"   value="${task.end   || ''}"></td>
+    <td><input type="color"  value="${task.bg    || '#e87878'}"></td>
+    <td><input type="color"  value="${task.text  || '#ffffff'}"></td>
+    <td><input type="number" value="${task.lane  || 1}" min="1" max="3"></td>
+    <td style="text-align:center"><input type="checkbox" ${task.arrow ? 'checked' : ''} title="末尾に矢印を表示"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove()">✕</button></td>
+  `;
+  document.getElementById('taskBody').appendChild(tr);
+}
+
+function getTableTasks() {
+  return Array.from(document.querySelectorAll('#taskBody tr')).map(tr => {
+    const i = tr.querySelectorAll('input');
+    return { name: i[0].value.trim(), start: i[1].value, end: i[2].value,
+             bg: i[3].value, text: i[4].value, lane: parseInt(i[5].value) || 1, arrow: i[6].checked };
+  }).filter(t => t.name && t.start && t.end);
+}
+
+async function generateCalendar() {
+  const err = document.getElementById('inputError');
+  err.textContent = '';
+  let tasks = getTableTasks();
+  if (!tasks.length) { err.textContent = 'タスクを入力してください。'; return; }
+  tasks = tasks.map(t => ({ ...t, startDate: new Date(t.start + 'T00:00:00'), endDate: new Date(t.end + 'T00:00:00') }));
+  await document.fonts.load('700 16px "Noto Sans JP"');
+  await document.fonts.load('400 16px "Noto Sans JP"');
+  drawCalendar(tasks, document.getElementById('calTitle').value,
+                      document.getElementById('calSubtitle').value,
+                      document.getElementById('calNote').value);
+  const panel = document.getElementById('output-panel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+function getMonths(tasks) {
+  let minD = tasks[0].startDate, maxD = tasks[0].endDate;
+  tasks.forEach(t => { if (t.startDate < minD) minD = t.startDate; if (t.endDate > maxD) maxD = t.endDate; });
+  const months = [];
+  let d = new Date(minD.getFullYear(), minD.getMonth(), 1);
+  const endM = new Date(maxD.getFullYear(), maxD.getMonth(), 1);
+  while (d <= endM) { months.push(new Date(d)); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); }
+  return months;
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r, color) {
+  if (w <= 0 || h <= 0) return;
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color) {
+  const a = Math.atan2(y2 - y1, x2 - x1), L = 14;
+  ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - L * Math.cos(a - Math.PI/7), y2 - L * Math.sin(a - Math.PI/7));
+  ctx.lineTo(x2 - L * Math.cos(a + Math.PI/7), y2 - L * Math.sin(a + Math.PI/7));
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function drawCalendar(tasks, title, subtitle, note) {
+  const canvas = document.getElementById('calendar');
+  const F = '"Noto Sans JP", "Helvetica Neue", Arial, sans-serif';
+
+  const SCALE   = 2;
+  const PAD     = 48;
+  const TITLE_H = title    ? 68 : 16;
+  const SUB_H   = subtitle ? 48 : 0;
+  const NOTE_H  = note     ? 40 : 0;
+  const HDR_H   = 64;
+  const DAY_H   = 38;
+  const CAL_GAP = 36;
+  const WEEKS   = 6;
+
+  const months = getMonths(tasks);
+  const N = months.length;
+
+  const TOTAL_W = 1280;
+  const TOTAL_H = Math.round(TOTAL_W * 3 / 4);
+
+  const CAL_W  = (TOTAL_W - PAD * 2 - CAL_GAP * (N - 1)) / N;
+  const CELL_W = CAL_W / 7;
+  const CAL_H  = TOTAL_H - PAD * 2 - TITLE_H - SUB_H - NOTE_H;
+  const WEEK_H = (CAL_H - HDR_H - DAY_H) / WEEKS;
+
+  const BAR_H        = Math.round(WEEK_H * 0.30);
+  const LANE_OFFSET  = Math.round(WEEK_H * 0.26);
+  const LANE_STRIDE  = BAR_H + Math.round(WEEK_H * 0.05);
+  const DATE_FONT_SZ = Math.round(WEEK_H * 0.19);
+  const BAR_FONT_SZ  = Math.round(BAR_H  * 0.52);
+  const DAY_FONT_SZ  = Math.round(DAY_H  * 0.38);
+  const HDR_YEAR_SZ  = Math.round(HDR_H  * 0.30);
+  const HDR_MONTH_SZ = Math.round(HDR_H  * 0.68);
+
+  canvas.width  = TOTAL_W * SCALE;
+  canvas.height = TOTAL_H * SCALE;
+  canvas.style.width  = TOTAL_W + 'px';
+  canvas.style.height = TOTAL_H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+
+  let curY = PAD;
+
+  if (title) {
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = `700 ${Math.round(TITLE_H * 0.44)}px ${F}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(title, PAD, curY + TITLE_H * 0.60);
+    curY += TITLE_H;
+  }
+  if (subtitle) {
+    const parts = subtitle.split(/(「[^」]+」)/g);
+    let xOff = PAD;
+    const sz = Math.round(SUB_H * 0.33);
+    parts.forEach(part => {
+      const bold = /^「/.test(part);
+      ctx.font = bold ? `700 ${sz}px ${F}` : `400 ${sz}px ${F}`;
+      ctx.fillStyle = bold ? '#cc2222' : '#444';
+      ctx.fillText(part, xOff, curY + SUB_H * 0.60);
+      xOff += ctx.measureText(part).width;
+    });
+    curY += SUB_H;
+  }
+
+  const gridTop = curY;
+  const cellMap = {};
+  const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+  months.forEach((month, mi) => {
+    const calX = PAD + mi * (CAL_W + CAL_GAP);
+    const calY = gridTop;
+    const year = month.getFullYear();
+    const mo   = month.getMonth();
+
+    // Year + Month — left, horizontal
+    const baseline = calY + HDR_H * 0.82;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#555';
+    ctx.font = `500 ${HDR_YEAR_SZ}px ${F}`;
+    const yearW = ctx.measureText(`${year}年`).width;
+    ctx.fillText(`${year}年`, calX, baseline);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = `700 ${HDR_MONTH_SZ}px ${F}`;
+    ctx.fillText(`${mo + 1}月`, calX + yearW + 6, baseline);
+
+    const hdrY = calY + HDR_H;
+    DAY_LABELS.forEach((d, di) => {
+      const x  = calX + di * CELL_W;
+      const bg = di === 0 ? '#cc3333' : di === 6 ? '#4477bb' : '#555555';
+      ctx.fillStyle = bg;
+      ctx.fillRect(x, hdrY, CELL_W, DAY_H);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+      ctx.strokeRect(x, hdrY, CELL_W, DAY_H);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `700 ${DAY_FONT_SZ}px ${F}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(d, x + CELL_W / 2, hdrY + DAY_H * 0.67);
+    });
+
+    const gridY    = hdrY + DAY_H;
+    const firstDay = new Date(year, mo, 1).getDay();
+    const daysInM  = new Date(year, mo + 1, 0).getDate();
+    const prevDays = new Date(year, mo, 0).getDate();
+
+    for (let row = 0; row < WEEKS; row++) {
+      for (let col = 0; col < 7; col++) {
+        const dayNum = row * 7 + col - firstDay + 1;
+        const cx = calX + col * CELL_W;
+        const cy = gridY + row * WEEK_H;
+        ctx.strokeStyle = '#d0d0d0'; ctx.lineWidth = 0.5;
+        ctx.strokeRect(cx, cy, CELL_W, WEEK_H);
+
+        let label, textColor, isCurrent = false;
+        if (dayNum < 1)         { label = String(prevDays + dayNum);  textColor = '#c8c8c8'; }
+        else if (dayNum > daysInM) { label = String(dayNum - daysInM); textColor = '#c8c8c8'; }
+        else {
+          label = String(dayNum); isCurrent = true;
+          textColor = col === 0 ? '#cc3333' : col === 6 ? '#4477bb' : '#222';
+          const key = `${year}-${String(mo+1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+          cellMap[key] = { x: cx, y: cy, w: CELL_W, h: WEEK_H, gridRow: row };
+        }
+        ctx.fillStyle = textColor;
+        ctx.font = isCurrent ? `700 ${DATE_FONT_SZ}px ${F}` : `400 ${Math.round(DATE_FONT_SZ * 0.85)}px ${F}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(label, cx + CELL_W / 2, cy + DATE_FONT_SZ + 4);
+      }
+    }
+  });
+
+  tasks.forEach(task => {
+    const segs = {};
+    let d = new Date(task.startDate);
+    while (d <= task.endDate) {
+      const key  = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const cell = cellMap[key];
+      if (cell) {
+        const sk = `${d.getFullYear()}-${d.getMonth()}-${cell.gridRow}`;
+        if (!segs[sk]) segs[sk] = { minX: cell.x, maxX: cell.x + cell.w, y: cell.y };
+        else { if (cell.x < segs[sk].minX) segs[sk].minX = cell.x; if (cell.x + cell.w > segs[sk].maxX) segs[sk].maxX = cell.x + cell.w; }
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    const segList = Object.values(segs).sort((a, b) => a.y - b.y || a.minX - b.minX);
+    segList.forEach((seg, si) => {
+      const bx = seg.minX + 2, bw = seg.maxX - seg.minX - 4;
+      const by = seg.y + LANE_OFFSET + (task.lane - 1) * LANE_STRIDE;
+      if (bw <= 0) return;
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.10)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+      drawRoundedRect(ctx, bx, by, bw, BAR_H, 4, task.bg); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.rect(bx + 3, by, bw - 6, BAR_H); ctx.clip();
+      ctx.fillStyle = task.text; ctx.font = `700 ${BAR_FONT_SZ}px ${F}`; ctx.textAlign = 'center';
+      ctx.fillText(task.name, bx + bw / 2, by + BAR_H * 0.67); ctx.restore();
+      if (task.arrow && si === segList.length - 1)
+        drawArrow(ctx, seg.maxX - 4, by + BAR_H / 2, seg.maxX + 34, by + BAR_H / 2, task.bg);
+    });
+  });
+
+  if (note) {
+    ctx.fillStyle = '#777';
+    ctx.font = `400 ${Math.round(NOTE_H * 0.33)}px ${F}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(note, PAD, gridTop + CAL_H + 14 + NOTE_H * 0.5);
+  }
+}
+
+function downloadPNG() {
+  const a = document.createElement('a');
+  a.download = 'schedule_calendar.png';
+  a.href = document.getElementById('calendar').toDataURL('image/png');
+  a.click();
+}
+
+window.onload = () => { defaultTasks.forEach(t => addTaskRow(t)); generateCalendar(); };
+</script>
+</body>
+</html>
